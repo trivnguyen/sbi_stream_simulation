@@ -6,7 +6,7 @@ import h5py
 import time
 from typing import Optional, Tuple, Union
 
-sys.path.append('/mnt/home/tnguyen/projects/sbi_stream_simulations/sims')
+sys.path.append('/mnt/home/tnguyen/projects/sbi_stream_simulation/sims')
 
 import matplotlib.pyplot as plt
 import numpy as np
