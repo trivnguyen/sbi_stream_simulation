@@ -22,6 +22,7 @@ import subhalo_orbit
 from rotation_matrix import obs_from_pos6d
 
 logging.set_verbosity(logging.INFO)
+PATIENCE = 100
 
 
 def sample_from_priors(priors, num_samples=1):
@@ -70,9 +71,11 @@ def run_single_sim(
     t_a : float
         Time since interaction in Gyr
     phi_a : float
-        Interaction point along stream in deg, phi=0 is progenitor location (try -20 to 10)
+        Interaction point along stream in deg, phi=0 is progenitor location
+        (try -20 to 10)
     rs_sat : float
-        Scale radius of subhalo in kpc, can be adjusted along with M_sat using equation 15 in erkal et al. 2015
+        Scale radius of subhalo in kpc, can be adjusted along with M_sat
+        using equation 15 in erkal et al. 2015
     pid : int
         Index included in saved filenames
 
@@ -108,7 +111,7 @@ def run_single_sim(
 
     return chi
 
-def process_stream(pid):
+def process_stream(pid, params):
     """ Process the stream data into observables """
 
     os.makedirs('final_observables', exist_ok=True)
@@ -133,14 +136,20 @@ def process_stream(pid):
         f.create_dataset('pm1', data=pm1, compression='gzip')
         f.create_dataset('pm2', data=pm2, compression='gzip')
         f.create_dataset('vr', data=vr, compression='gzip')
+        f.attrs.update(params)
 
 def simulate_dataset(config: config_dict.ConfigDict, workdir: str):
     """ Simulate a dataset of streams with subhalo impacts given the parameters """
 
+    # set seed for reproducibility
+    # np.random.seed(config.seed)
+
     # create working directories for the simulation
     logging.info(f'Creating working directory {workdir}')
-    if os.path.exists(workdir):
+    if os.path.exists(workdir) and (not config.overwrite):
         raise ValueError(f'Working directory {workdir} already exists')
+    else:
+        shutil.rmtree(workdir, ignore_errors=True)
     os.makedirs(workdir, exist_ok=True)
 
     # copy the binaries and potential files to the working directory
@@ -157,6 +166,8 @@ def simulate_dataset(config: config_dict.ConfigDict, workdir: str):
 
     all_params = {'chi2': []}
     curr_pid, pbar = 0, tqdm(total=config.num_samples)
+    i_patience = 0
+
     while curr_pid < config.num_samples:
         try:
             # sample the parameters from the prior distribution
@@ -167,7 +178,7 @@ def simulate_dataset(config: config_dict.ConfigDict, workdir: str):
 
             # run simulation and process
             chi2 = run_single_sim(**params)
-            process_stream(curr_pid)
+            process_stream(curr_pid, params)
 
             # add parameters and chi
             for key, val in params.items():
@@ -179,26 +190,40 @@ def simulate_dataset(config: config_dict.ConfigDict, workdir: str):
             # update progress bar and pid
             curr_pid += 1
             pbar.update(1)
+
+            # reset patience
+            i_patience = 0
+
         except Exception as e:
             logging.warning(
                 f'Failed to simulate stream {curr_pid} with parameters {params}')
             logging.warning(e)
-            continue
-    pbar.close()
+            i_patience += 1
 
-    # move the simulation results to the working directory
-    logging.info('Finalizing simulation results...')
-    if config.save_observables_only:
-        logging.info('Saving only the observables...')
-        shutil.rmtree('orbits')
-        shutil.rmtree('pre_impact')
-        shutil.rmtree('final_stream')
-        shutil.rmtree('final_coords')
+            # if too many failed simulations in a row, it's probably something
+            # wrong with the istream, exit the code
+            if i_patience > PATIENCE:
+                logging.error('Too many failed simulations. Cleaning up and exiting...')
+                shutil.rmtree(workdir)
+                raise RuntimeError('Too many failed simulations')
+
+    pbar.close()
 
     # save the simulation parameters as a CSV table
     logging.info('Saving simulation parameters...')
     all_params = pd.DataFrame(all_params)
-    all_params.to_csv('labels.csv', index=True)
+    all_params.to_csv('labels.csv', index=False)
+
+    # move the simulation results to the working directory
+    logging.info('Finalizing simulation results...')
+    if config.save_observables_only:
+        logging.info('Saving only the observables. Deleting other files...')
+        shutil.rmtree('orbits')
+        shutil.rmtree('pre_impact')
+        shutil.rmtree('final_stream')
+        shutil.rmtree('final_coords')
+        shutil.rmtree('binaries')
+        shutil.rmtree('pot')
 
     return all_params
 
