@@ -22,7 +22,7 @@ import subhalo_orbit
 from rotation_matrix import obs_from_pos6d
 
 logging.set_verbosity(logging.INFO)
-PATIENCE = 100
+PATIENCE = 1000
 
 
 def sample_from_priors(priors, num_samples=1):
@@ -193,6 +193,13 @@ def simulate_dataset(config: config_dict.ConfigDict, workdir: str):
 
             # reset patience
             i_patience = 0
+
+            # delete the pre-impact and final stream files
+            if config.save_observables_only:
+                os.remove('orbits/orbits_{:d}.txt'.format(curr_pid-1))
+                os.remove('pre_impact/pre_impact_{:d}.txt'.format(curr_pid-1))
+                os.remove('final_stream/final_stream_{:d}.txt'.format(curr_pid-1))
+                os.remove('final_coords/final_coords_{:d}.txt'.format(curr_pid-1))
 
         except Exception as e:
             logging.warning(
