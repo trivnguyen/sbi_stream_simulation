@@ -6,7 +6,7 @@ import h5py
 import time
 from typing import Optional, Tuple, Union
 
-sys.path.append('/mnt/home/tnguyen/projects/sbi_stream_simulation/sims')
+sys.path.append('/global/u2/t/tvnguyen/sbi_stream_simulation/sims')
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -99,15 +99,24 @@ def run_single_sim(
     os.makedirs('final_coords', exist_ok=True)
 
     # Start simulation
-    SH_x, SH_y, SH_z, SH_vx, SH_vy, SH_vz, _ = initial_stream.chi2_eval(
-        tapproach=t_a, tmax=tmax, pid=pid, **DEFAULT_STREAM_PARAMS)
-    x_sat, y_sat, z_sat, vx_sat, vy_sat, vz_sat = subhalo_orbit.chi2_eval(
-        SH_x, SH_y, SH_z, SH_vx, SH_vy, SH_vz, r, phi, vphi, vz,
-        tmax, t_a, phi_a, pid)
-    chi = stream_impact.chi2_eval(
-        x_sat=x_sat, y_sat=y_sat, z_sat=z_sat, vx_sat=vx_sat, vy_sat=vy_sat,
-        vz_sat=vz_sat, tmax=tmax, M_sat=M_sat, sr=rs_sat, pid=pid,
-        **DEFAULT_STREAM_PARAMS)
+    try:
+        SH_x, SH_y, SH_z, SH_vx, SH_vy, SH_vz, _ = initial_stream.chi2_eval(
+            tapproach=t_a, tmax=tmax, pid=pid, **DEFAULT_STREAM_PARAMS)
+    except Exception as e:
+        raise Exception(f"Error in initial_stream: {e}")
+    try:
+        x_sat, y_sat, z_sat, vx_sat, vy_sat, vz_sat = subhalo_orbit.chi2_eval(
+            SH_x, SH_y, SH_z, SH_vx, SH_vy, SH_vz, r, phi, vphi, vz,
+            tmax, t_a, phi_a, pid)
+    except Exception as e:
+        raise Exception(f"Error in subhalo_orbit: {e}")
+    try:
+        chi = stream_impact.chi2_eval(
+            x_sat=x_sat, y_sat=y_sat, z_sat=z_sat, vx_sat=vx_sat, vy_sat=vy_sat,
+            vz_sat=vz_sat, tmax=tmax, M_sat=M_sat, sr=rs_sat, pid=pid,
+            **DEFAULT_STREAM_PARAMS)
+    except Exception as e:
+        raise Exception(f"Error in stream_impact: {e}")
 
     return chi
 
