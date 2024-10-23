@@ -24,31 +24,66 @@ from rotation_matrix import obs_from_pos6d
 logging.set_verbosity(logging.INFO)
 PATIENCE = 1000
 
-
-def sample_from_priors(priors, num_samples=1):
+def sample_all_params(priors, num_samples=1, max_attempts=1000):
+    """ Sample all stream parameters from prior """
     params = {}
-    for key, val in priors.items():
-        if val.dist == 'delta':
-            params[key] = np.full(num_samples, val.value)
-        elif val.dist == 'uniform':
-            params[key] = stats.uniform(
-                loc=val.loc, scale=val.scale).rvs(num_samples)
-        elif val.dist == 'log_uniform':
-            params[key] = stats.loguniform(
-                a=val.a, b=val.b).rvs(num_samples)
-        elif val.dist == 'normal':
-            params[key] = stats.norm(
-                loc=val.loc, scale=val.scale).rvs(num_samples)
-        elif val.dist == 'log_normal':
-            params[key] = stats.lognorm(
-                s=val.s, loc=val.loc, scale=val.scale).rvs(num_samples)
-        else:
-            raise ValueError(f'Unknown distribution {val.dist}')
 
-    if num_samples == 1:
-        params = {key: val[0] for key, val in params.items()}
+    for attempt in range(max_attempts):
+        # Sample all parameters
+        params = {key: sample(val, num_samples) for key, val in priors.items()}
 
-    return params
+        if params.get('vtotal') is not None:
+            # check if vz and vphi are both given, raise error if yes
+            if (params.get('vz') is not None) and (params.get('vphi') is not None):
+                raise ValueError('If vtotal is given, both vz and vphi cannot be given')
+            elif params.get('vz') is not None:
+                vz = params['vz']
+                vtotal = params['vtotal']
+                # Check if vz exceeds vtotal
+                if np.any(np.abs(vz) > vtotal):
+                    continue  # Resample if invalid
+                vphi = np.sqrt(vtotal**2 - vz**2)
+                params['vphi'] = vphi
+                params.pop('vtotal')
+            elif params.get('vphi') is not None:
+                vphi = params['vphi']
+                vtotal = params['vtotal']
+                # Check if vphi exceeds vtotal
+                if np.any(np.abs(vphi) > vtotal):
+                    continue  # Resample if invalid
+                vz = np.sqrt(vtotal**2 - vphi**2)
+                params['vz'] = vz
+                params.pop('vtotal')
+
+        # If only one sample is requested, convert arrays to scalar values
+        if num_samples == 1:
+            params = {key: val[0] for key, val in params.items()}
+
+        # If all conditions are met, return the parameters
+        return params
+
+    # Raise an error if valid parameters are not found within max_attempts
+    raise RuntimeError("Failed to sample valid parameters within the specified number of attempts")
+
+def sample(val, num_samples):
+    if val.dist == 'delta':
+        p = np.full(num_samples, val.value)
+    elif val.dist == 'uniform':
+        p = stats.uniform(
+            loc=val.loc, scale=val.scale).rvs(num_samples)
+    elif val.dist == 'log_uniform':
+        p = stats.loguniform(
+            a=val.a, b=val.b).rvs(num_samples)
+    elif val.dist == 'normal':
+        p = stats.norm(
+            loc=val.loc, scale=val.scale).rvs(num_samples)
+    elif val.dist == 'log_normal':
+        p = stats.lognorm(
+            s=val.s, loc=val.loc, scale=val.scale).rvs(num_samples)
+    else:
+        raise ValueError(f'Unknown distribution {val.dist}')
+    return p
+
 
 def run_single_sim(
     r, phi, vphi, vz, M_sat, tmax, t_a, phi_a, rs_sat, pid):
@@ -180,7 +215,7 @@ def simulate_dataset(config: config_dict.ConfigDict, workdir: str):
     while curr_pid < config.num_samples:
         try:
             # sample the parameters from the prior distribution
-            params = sample_from_priors(config.priors)
+            params = sample_all_params(config.priors)
             if params.get('rs_sat') is None:
                 params['rs_sat'] = 1.05 * np.sqrt(params['M_sat']*100)
             params['pid'] = curr_pid
